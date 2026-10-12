@@ -1,0 +1,50 @@
+ ./poc_vulnb
+=================================================================
+==8020==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x611000000108 at pc 0x5d5372a751a4 bp 0x7ffd710cb530 sp 0x7ffd710cb528
+WRITE of size 1 at 0x611000000108 thread T0
+    #0 0x5d5372a751a3 in BitSourceStatic::Copy_From_Transform_Samples(SndSample&, short, char*, unsigned long) /home/lloyd/Documents/PitchScope_Player-master/vulnb_target.cpp:97:23
+    #1 0x5d5372a7481e in main /home/lloyd/Documents/PitchScope_Player-master/vulnb_target.cpp:158:19
+    #2 0x77b886e29d8f in __libc_start_call_main csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+    #3 0x77b886e29e3f in __libc_start_main csu/../csu/libc-start.c:392:3
+    #4 0x5d53729b4304 in _start (/home/lloyd/Documents/PitchScope_Player-master/poc_vulnb+0x1e304) (BuildId: 144ab027e7110711189acbc8245131a355102ac7)
+
+0x611000000108 is located 0 bytes to the right of 200-byte region [0x611000000040,0x611000000108)
+allocated by thread T0 here:
+    #0 0x5d5372a3714e in malloc (/home/lloyd/Documents/PitchScope_Player-master/poc_vulnb+0xa114e) (BuildId: 144ab027e7110711189acbc8245131a355102ac7)
+    #1 0x5d5372a74aa8 in BitSourceStatic::Create_Secondary_Buffer(long) /home/lloyd/Documents/PitchScope_Player-master/vulnb_target.cpp:41:31
+    #2 0x5d5372a7470a in main /home/lloyd/Documents/PitchScope_Player-master/vulnb_target.cpp:146:13
+    #3 0x77b886e29d8f in __libc_start_call_main csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+
+SUMMARY: AddressSanitizer: heap-buffer-overflow /home/lloyd/Documents/PitchScope_Player-master/vulnb_target.cpp:97:23 in BitSourceStatic::Copy_From_Transform_Samples(SndSample&, short, char*, unsigned long)
+Shadow bytes around the buggy address:
+  0x0c227fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x0c227fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x0c227fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x0c227fff8000: fa fa fa fa fa fa fa fa 00 00 00 00 00 00 00 00
+  0x0c227fff8010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x0c227fff8020: 00[fa]fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x0c227fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x0c227fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x0c227fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x0c227fff8060: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x0c227fff8070: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==8020==ABORTING
